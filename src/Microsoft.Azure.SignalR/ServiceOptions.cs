@@ -129,6 +129,6 @@ namespace Microsoft.Azure.SignalR
         /// * Make sure client sdk is net8 or later.
         /// * Enable stateful reconnect: <code>builder.withStatefulReconnect()</code>
         /// </summary>
-        internal bool? AllowStatefulReconnects { get; set; }
+        public bool? AllowStatefulReconnects { get; set; }
     }
 }

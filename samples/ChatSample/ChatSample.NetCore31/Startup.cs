@@ -15,12 +15,13 @@ namespace ChatSample.CoreApp3
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddMvc();
-            services.AddSignalR()
+            services.AddSignalR(o => o.MaximumReceiveMessageSize = 1024 * 1024)
                 .AddAzureSignalR(option =>
                 {
                     option.GracefulShutdown.Mode = GracefulShutdownMode.WaitForClientsClose;
-                    option.GracefulShutdown.Timeout = TimeSpan.FromSeconds(30);
-
+                    option.GracefulShutdown.Timeout = TimeSpan.FromSeconds(3);
+                    option.AllowStatefulReconnects = true;
+                    option.ConnectionString = "Endpoint=http://localhost:8080;AccessKey=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEFGH;Version=1.0;";
                     option.GracefulShutdown.Add<Chat>(async (c) =>
                     {
                         await c.Clients.All.SendAsync("exit");
