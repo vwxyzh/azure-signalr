@@ -999,6 +999,7 @@
                 this.connection.onclose = (error) => this._connectionClosed(error);
                 this._callbacks = {};
                 this._methods = {};
+                this._streamMethods = {};
                 this._closedCallbacks = [];
                 this._reconnectingCallbacks = [];
                 this._reconnectedCallbacks = [];
@@ -1211,6 +1212,33 @@
                 this._launchStreams(streams, promiseQueue);
                 return subject;
             }
+            joinServerStream(invocationId) {
+                const subject = new Subject();
+                subject.cancelCallback = () => {
+                    delete this._callbacks[invocationId];
+                };
+                this._callbacks[invocationId] = (invocationEvent, error) => {
+                    if (error) {
+                        subject.error(error);
+                        return;
+                    }
+                    else if (invocationEvent) {
+                        // invocationEvent will not be null when an error is not passed to the callback
+                        if (invocationEvent.type === MessageType.Completion) {
+                            if (invocationEvent.error) {
+                                subject.error(new Error(invocationEvent.error));
+                            }
+                            else {
+                                subject.complete();
+                            }
+                        }
+                        else {
+                            subject.next((invocationEvent.item));
+                        }
+                    }
+                };
+                return subject;
+            }
             _sendMessage(message) {
                 this._resetKeepAliveInterval();
                 return this.connection.send(message);
@@ -1319,6 +1347,24 @@
                     delete this._methods[methodName];
                 }
             }
+            onStream(methodName, newMethod) {
+                if (!methodName || !newMethod) {
+                    return;
+                }
+                methodName = methodName.toLowerCase();
+                this._streamMethods[methodName] = newMethod;
+            }
+            offStream(methodName) {
+                if (!methodName) {
+                    return;
+                }
+                methodName = methodName.toLowerCase();
+                const handlers = this._streamMethods[methodName];
+                if (!handlers) {
+                    return;
+                }
+                delete this._streamMethods[methodName];
+            }
             /** Registers a handler that will be invoked when the connection is closed.
              *
              * @param {Function} callback The handler that will be invoked when the connection is closed. Optionally receives a single argument containing the error that caused the connection to close (if any).
@@ -1361,6 +1407,10 @@
                             case MessageType.Invocation:
                                 // eslint-disable-next-line @typescript-eslint/no-floating-promises
                                 this._invokeClientMethod(message);
+                                break;
+                            case MessageType.StreamInvocation:
+                                // eslint-disable-next-line @typescript-eslint/no-floating-promises
+                                this._invokeClientStreamMethod(message);
                                 break;
                             case MessageType.StreamItem:
                             case MessageType.Completion: {
@@ -1531,6 +1581,48 @@
                         this._logger.log(LogLevel.Error, `Result given for '${methodName}' method but server is not expecting a result.`);
                     }
                 }
+            }
+            async _invokeClientStreamMethod(streamInvocationMessage) {
+                const methodName = streamInvocationMessage.target.toLowerCase();
+                const method = this._streamMethods[methodName];
+                if (!method) {
+                    this._logger.log(LogLevel.Warning, `No client method with the name '${methodName}' found.`);
+                    // No handlers provided by client but the server is expecting a response still, so we send an error
+                    return;
+                }
+                if (!streamInvocationMessage.invocationId) {
+                    return;
+                }
+                const invocationId = streamInvocationMessage.invocationId;
+                const subject = new Subject();
+                subject.cancelCallback = () => {
+                    delete this._callbacks[invocationId];
+                };
+                this._callbacks[invocationId] = (invocationEvent, error) => {
+                    if (error) {
+                        subject.error(error);
+                        return;
+                    }
+                    else if (invocationEvent) {
+                        // invocationEvent will not be null when an error is not passed to the callback
+                        if (invocationEvent.type === MessageType.Completion) {
+                            if (invocationEvent.error) {
+                                subject.error(new Error(invocationEvent.error));
+                            }
+                            else {
+                                subject.complete();
+                            }
+                        }
+                        else {
+                            subject.next((invocationEvent.item));
+                        }
+                    }
+                };
+                if (!streamInvocationMessage.arguments) {
+                    streamInvocationMessage.arguments = [];
+                }
+                streamInvocationMessage.arguments.push(subject);
+                await method.apply(this, streamInvocationMessage.arguments);
             }
             _connectionClosed(error) {
                 this._logger.log(LogLevel.Debug, `HubConnection.connectionClosed(${error}) called while in state ${this._connectionState}.`);
@@ -2940,6 +3032,9 @@
                         case MessageType.Invocation:
                             this._isInvocationMessage(parsedMessage);
                             break;
+                        case MessageType.StreamInvocation:
+                            this._isStreamInvocationMessage(parsedMessage);
+                            break;
                         case MessageType.StreamItem:
                             this._isStreamItemMessage(parsedMessage);
                             break;
@@ -2973,6 +3068,12 @@
                 this._assertNotEmptyString(message.target, "Invalid payload for Invocation message.");
                 if (message.invocationId !== undefined) {
                     this._assertNotEmptyString(message.invocationId, "Invalid payload for Invocation message.");
+                }
+            }
+            _isStreamInvocationMessage(message) {
+                this._assertNotEmptyString(message.target, "Invalid payload for Stream Invocation message.");
+                if (message.invocationId !== undefined) {
+                    this._assertNotEmptyString(message.invocationId, "Invalid payload for Stream Invocation message.");
                 }
             }
             _isStreamItemMessage(message) {

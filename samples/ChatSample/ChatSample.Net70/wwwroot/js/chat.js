@@ -35,8 +35,25 @@ var messageCallback = function (message) {
     li.textContent = message;
 };
 
+var serverStreamCallback = function (subject) {
+    var li = document.createElement("li");
+    document.getElementById("messagesList").appendChild(li);
+    subject.subscribe({
+        next: (item) => {
+            li.textContent += item;
+        },
+        error: (err) => {
+            console.error(err.toString());
+        },
+        complete: () => {
+            console.log("Streaming complete");
+        }
+    });
+};
+
 connection.on("Connect", messageCallback);
 connection.on("Broadcast", messageCallback);
+connection.onStream("StreamBroadcast", serverStreamCallback);
 
 connection.on("GetMessage", async function () {
     document.getElementById("sendButton").disabled = false;
