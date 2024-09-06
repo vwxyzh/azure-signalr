@@ -19,20 +19,29 @@ namespace ClientResultSample
 
         private async Task StartServerStream(string connectionId)
         {
+            static async IAsyncEnumerable<string> GetStream(string connectionId)
+            {
+                await Task.Delay(100);
+                yield return "Welcome ";
+                for (int i = 0; i < connectionId.Length; i++)
+                {
+                    await Task.Delay(100);
+                    yield return $"{connectionId[i]}";
+                }
+            }
             await Task.Delay(1000);
+            // it should be:
+            // context.Clients.All.SendStreamAsync(GetStream(connectionId));
+            // now, we use service rest api instead.
             var invocationId = Guid.NewGuid().ToString();
             using HttpClient httpClient = new();
             var url = "https://<endpoint>/api/hubs/ClientResultHub/:send";
             var json = $"{{\"invocationId\":\"{invocationId}\",\"target\":\"StreamBroadcast\",\"type\":4}}\x1e";
             await Send(httpClient, url, json);
-            await Task.Delay(100);
-            json = $"{{\"invocationId\":\"{invocationId}\",\"item\":\"Welcome \",\"type\":2}}\x1e";
-            await Send(httpClient, url, json);
-            for (int i = 0; i < connectionId.Length; i++)
+            await foreach (var item in GetStream(connectionId))
             {
-                json = $"{{\"invocationId\":\"{invocationId}\",\"item\":\"{connectionId[i]}\",\"type\":2}}\x1e";
+                json = $"{{\"invocationId\":\"{invocationId}\",\"item\":\"{item}\",\"type\":2}}\x1e";
                 await Send(httpClient, url, json);
-                await Task.Delay(100);
             }
             json = $"{{\"invocationId\":\"{invocationId}\",\"type\":3}}\x1e";
             await Send(httpClient, url, json);
